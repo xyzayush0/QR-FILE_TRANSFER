@@ -17,11 +17,13 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [fastTransferProgress, setFastTransferProgress] = useState(0);
   const [receivingFileData, setReceivingFileData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const isProcessingScan = useRef(false);
+  const [isPeerReady, setIsPeerReady] = useState(false);
 
   useEffect(() => {
     // Initialize WebRTC Peer for receiving
     setErrorMsg('');
-    const p = initPeer(() => {}, (err) => setErrorMsg(err));
+    const p = initPeer(() => setIsPeerReady(true), (err) => setErrorMsg(err));
     setPeer(p);
     return () => p.destroy();
   }, []);
@@ -49,7 +51,10 @@ export const ReceiveDashboard = ({ onBack }) => {
   }, [completedFile, isFastMode]);
 
   const handleScan = (text) => {
+    if (isProcessingScan.current) return;
+    
     if (text.startsWith("WEBRTC|")) {
+      isProcessingScan.current = true;
       const remoteId = text.split("|")[1];
       initiateFastTransfer(remoteId);
       return;
@@ -81,11 +86,11 @@ export const ReceiveDashboard = ({ onBack }) => {
 
   const initiateFastTransfer = (remoteId) => {
     if (scannerInstance) {
-      scannerInstance.stop();
+      scannerInstance.stop().catch(console.error);
     }
     setIsFastMode(true);
     
-    if (peer) {
+    const doConnect = () => {
       const connection = connectToPeer(peer, remoteId, (c) => {
         setConn(c);
         let headerData = null;
@@ -100,6 +105,15 @@ export const ReceiveDashboard = ({ onBack }) => {
           }
         });
       });
+      connection.on('error', (err) => setErrorMsg(err.message || String(err)));
+    };
+
+    if (peer) {
+      if (!isPeerReady) {
+         peer.on('open', doConnect);
+      } else {
+         doConnect();
+      }
     }
   };
 
@@ -170,7 +184,7 @@ export const ReceiveDashboard = ({ onBack }) => {
         </div>
       )}
 
-      <button className="btn" onClick={onBack} style={{ marginTop: '1rem' }}>Back</button>
+      <button className="btn" onClick={() => { isProcessingScan.current = false; onBack(); }} style={{ marginTop: '1rem' }}>Back</button>
     </div>
   );
 };
