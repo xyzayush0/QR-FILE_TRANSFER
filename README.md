@@ -1,16 +1,57 @@
-# React + Vite
+# QRStream - Optical File Transfer
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+QRStream is a modern, offline-capable Progressive Web App (PWA) that allows you to seamlessly transfer files between devices without requiring an internet connection or a shared Wi-Fi network. It utilizes WebRTC for direct peer-to-peer data transfer, which you can easily initiate by scanning a QR code or entering a connection ID.
 
-Currently, two official plugins are available:
+## 🚀 Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Peer-to-Peer Transfer:** Uses WebRTC to send files directly from device to device. No servers store your files.
+- **Offline First:** Fully functional without the internet once installed. Acts as a Progressive Web App (PWA) so you can "Add to Home Screen".
+- **Optical Connection:** Start transfers instantly by scanning a QR code with the receiver's device camera.
+- **Large File Support:** Automatically chunks large files for reliable, high-speed transfer.
+- **Cross-Platform:** Works on any modern browser (iOS, Android, Windows, Mac, Linux).
+- **Secure:** Files never leave your local network or the direct device-to-device connection.
 
-## React Compiler
+## 🔗 Live Demo
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Access the live app hosted on GitHub Pages:
+**[https://xyzayush0.github.io/QR-FILE_TRANSFER/](https://xyzayush0.github.io/QR-FILE_TRANSFER/)**
 
-## Expanding the Oxlint configuration
+## 📱 How to Use Offline (PWA)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+1. Open the [live demo](https://xyzayush0.github.io/QR-FILE_TRANSFER/) on your phone or desktop.
+2. When prompted, select **"Install App"** or **"Add to Home Screen"**.
+3. Launch the app from your home screen.
+4. You can now use it to transfer files even when you have no internet access!
+
+## 🛠️ Tech Stack
+
+- **React 19**
+- **Vite**
+- **Tailwind CSS** / **Lucide React** (for modern, dynamic UI)
+- **PeerJS** (WebRTC abstraction)
+- **html5-qrcode** (QR code scanning)
+- **vite-plugin-pwa** (Service Workers and Offline Support)
+
+## 💻 Development
+
+### Prerequisites
+- Node.js (v16 or higher)
+
+### Setup
+```bash
+git clone https://github.com/xyzayush0/QR-FILE_TRANSFER.git
+cd QR-FILE_TRANSFER
+npm install
+npm run dev
+```
+
+### Build & Deploy
+To build for production:
+```bash
+npm run build
+```
+
+To deploy to GitHub Pages:
+```bash
+npm run deploy
+```
