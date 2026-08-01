@@ -27,7 +27,7 @@ export const SendDashboard = ({ onBack }) => {
   }, [file]);
 
   useEffect(() => {
-    if (mode === 'fast' && !peerId) {
+    if (mode === 'fast') {
       const peer = initPeer((id) => setPeerId(id));
       peer.on('connection', (connection) => {
         setConn(connection);
@@ -43,9 +43,12 @@ export const SendDashboard = ({ onBack }) => {
           }
         });
       });
-      return () => peer.destroy();
+      return () => {
+        peer.destroy();
+        setPeerId('');
+      };
     }
-  }, [mode, peerId]);
+  }, [mode]);
 
   useEffect(() => {
     if (isPlaying && chunks.length > 0) {
