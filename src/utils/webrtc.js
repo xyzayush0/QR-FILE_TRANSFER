@@ -1,7 +1,7 @@
 import Peer from 'peerjs';
 
-export const initPeer = (onOpen, onError) => {
-  const peer = new Peer({
+export const initPeer = (customId, onOpen, onError) => {
+  const config = {
     config: {
       'iceServers': [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -10,7 +10,9 @@ export const initPeer = (onOpen, onError) => {
       ]
     },
     debug: 2
-  });
+  };
+
+  const peer = customId ? new Peer(customId, config) : new Peer(config);
   
   peer.on('open', (id) => {
     onOpen(id);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from "html5-qrcode";
 import { QRCodeSVG } from 'qrcode.react';
-import { Download, CheckCircle, Camera, QrCode } from 'lucide-react';
+import { Download, CheckCircle, Camera, QrCode, Keyboard } from 'lucide-react';
 import { reassembleFile } from '../utils/chunking';
 import { initPeer, connectToPeer } from '../utils/webrtc';
 
@@ -19,9 +19,14 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [errorMsg, setErrorMsg] = useState('');
   const [logs, setLogs] = useState([]);
   
-  // New Pairing Mode: 'scan' or 'show'
+  // 'scan' (Camera), 'show' (QR), 'code' (Text)
   const [pairingMode, setPairingMode] = useState('scan');
+  // 'generate' or 'enter' (for 'code' mode)
+  const [codeMode, setCodeMode] = useState('generate');
+  const [enteredCode, setEnteredCode] = useState('');
+
   const pairingModeRef = useRef('scan');
+  const codeModeRef = useRef('generate');
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
@@ -64,26 +69,60 @@ export const ReceiveDashboard = ({ onBack }) => {
   }, [pairingMode]);
 
   useEffect(() => {
-    setErrorMsg('');
-    addLog('Initializing PeerJS...');
-    const p = initPeer(
-       () => { setIsPeerReady(true); addLog('PeerJS Open.'); }, 
-       (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
-    );
-    setPeer(p);
-    peerRef.current = p;
+    codeModeRef.current = codeMode;
+  }, [codeMode]);
 
-    p.on('connection', (c) => {
-      if (pairingModeRef.current === 'show') {
-         addLog('Incoming connection received.');
-         setIsFastMode(true);
-         setConn(c);
-         setupDataListener(c);
-      }
-    });
+  useEffect(() => {
+    // Only auto-initialize peer if we are in 'show' mode, OR if we are in 'generate' code mode
+    let customId = null;
+    if (pairingMode === 'code' && codeMode === 'generate') {
+      customId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    }
+    
+    // We only need a listening peer if we are 'show' OR 'generate'
+    if (pairingMode === 'show' || (pairingMode === 'code' && codeMode === 'generate')) {
+      setErrorMsg('');
+      setIsPeerReady(false);
+      addLog('Initializing PeerJS Server...');
+      const p = initPeer(
+         customId,
+         () => { setIsPeerReady(true); addLog('PeerJS Open.'); }, 
+         (err) => { 
+           // If custom ID is taken, it throws unavailable-id
+           if (err.type === 'unavailable-id') {
+              setErrorMsg('Code collision. Please try generating again.');
+           } else {
+              setErrorMsg(String(err)); 
+           }
+           addLog(`PeerJS Error: ${err}`); 
+         }
+      );
+      setPeer(p);
+      peerRef.current = p;
 
-    return () => { p.destroy(); peerRef.current = null; };
-  }, []);
+      p.on('connection', (c) => {
+        if (pairingModeRef.current === 'show' || (pairingModeRef.current === 'code' && codeModeRef.current === 'generate')) {
+           addLog('Incoming connection received.');
+           setIsFastMode(true);
+           setConn(c);
+           setupDataListener(c);
+        }
+      });
+
+      return () => { p.destroy(); peerRef.current = null; };
+    } else {
+      // If we are 'scan' or 'enter' code, we only initialize a generic peer to use as a client
+      setErrorMsg('');
+      const p = initPeer(
+         null,
+         () => { setIsPeerReady(true); }, 
+         (err) => { setErrorMsg(String(err)); }
+      );
+      setPeer(p);
+      peerRef.current = p;
+      return () => { p.destroy(); peerRef.current = null; };
+    }
+  }, [pairingMode, codeMode]);
 
   useEffect(() => {
     let html5Qrcode;
@@ -142,6 +181,7 @@ export const ReceiveDashboard = ({ onBack }) => {
   };
 
   const initiateFastTransfer = (remoteId) => {
+    if (!remoteId) return;
     if (scannerInstance) {
       scannerInstance.stop().catch(console.error);
     }
@@ -214,6 +254,12 @@ export const ReceiveDashboard = ({ onBack }) => {
           >
             <QrCode size={16} style={{marginRight: 4}}/> Show QR
           </button>
+          <button 
+            className={pairingMode === 'code' ? 'active' : ''} 
+            onClick={() => setPairingMode('code')}
+          >
+            <Keyboard size={16} style={{marginRight: 4}}/> Use Code
+          </button>
         </div>
       )}
 
@@ -240,9 +286,9 @@ export const ReceiveDashboard = ({ onBack }) => {
       {!completedFile && !isFastMode && pairingMode === 'show' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
           <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the sender device to pair instantly.</p>
-          {isPeerReady ? (
+          {isPeerReady && peerRef.current?.id ? (
             <div className="qr-container">
-              <QRCodeSVG value={`WEBRTC|${peerRef.current?.id}`} size={200} level="M" />
+              <QRCodeSVG value={`WEBRTC|${peerRef.current.id}`} size={200} level="M" />
             </div>
           ) : (
             <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -250,6 +296,74 @@ export const ReceiveDashboard = ({ onBack }) => {
             </div>
           )}
           <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+        </div>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'code' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', width: '100%' }}>
+          <div className="mode-toggle" style={{ marginBottom: '1rem', width: '100%' }}>
+            <button 
+              className={codeMode === 'generate' ? 'active' : ''} 
+              onClick={() => setCodeMode('generate')}
+              style={{ flex: 1 }}
+            >
+              Generate Code
+            </button>
+            <button 
+              className={codeMode === 'enter' ? 'active' : ''} 
+              onClick={() => setCodeMode('enter')}
+              style={{ flex: 1 }}
+            >
+              Enter Code
+            </button>
+          </div>
+
+          {codeMode === 'generate' && (
+             <div style={{ textAlign: 'center', width: '100%' }}>
+               <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Enter this 6-character code on the sender device.</p>
+               {isPeerReady && peerRef.current?.id ? (
+                 <div style={{ background: 'rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '12px', fontSize: '3rem', letterSpacing: '0.5rem', fontWeight: 'bold' }}>
+                   {peerRef.current.id}
+                 </div>
+               ) : (
+                 <p className="pulse">Generating code...</p>
+               )}
+               <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '1rem' }}>Waiting for connection...</p>
+             </div>
+          )}
+
+          {codeMode === 'enter' && (
+             <div style={{ textAlign: 'center', width: '100%' }}>
+               <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Type the 6-character code shown on the sender device.</p>
+               <input 
+                 type="text" 
+                 maxLength={6}
+                 value={enteredCode}
+                 onChange={(e) => setEnteredCode(e.target.value.toUpperCase())}
+                 style={{ 
+                   width: '100%', 
+                   padding: '1rem', 
+                   fontSize: '2rem', 
+                   textAlign: 'center', 
+                   letterSpacing: '0.5rem', 
+                   borderRadius: '8px', 
+                   border: '2px solid rgba(255,255,255,0.2)', 
+                   background: 'rgba(0,0,0,0.2)', 
+                   color: 'white', 
+                   textTransform: 'uppercase' 
+                 }} 
+                 placeholder="------"
+               />
+               <button 
+                 className="btn btn-primary" 
+                 style={{ marginTop: '1rem', width: '100%' }}
+                 disabled={enteredCode.length !== 6 || !isPeerReady}
+                 onClick={() => initiateFastTransfer(enteredCode)}
+               >
+                 Connect
+               </button>
+             </div>
+          )}
         </div>
       )}
 
@@ -271,7 +385,7 @@ export const ReceiveDashboard = ({ onBack }) => {
 
       {errorMsg && (
         <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--error-color)', background: 'rgba(255,0,0,0.1)', borderRadius: '8px', marginTop: '1rem' }}>
-          <p><strong>Connection Error:</strong> {errorMsg}</p>
+          <p><strong>Error:</strong> {errorMsg}</p>
         </div>
       )}
 

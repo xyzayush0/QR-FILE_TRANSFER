@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UploadCloud, CheckCircle, Eye, Zap, Play, Pause, Camera, QrCode } from 'lucide-react';
+import { UploadCloud, CheckCircle, Eye, Zap, Play, Pause, Camera, QrCode, Keyboard } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from "html5-qrcode";
 import { prepareChunks } from '../utils/chunking';
@@ -13,9 +13,14 @@ export const SendDashboard = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [mode, setMode] = useState('optical'); // 'optical' or 'fast'
   
-  // New Pairing Mode for Fast Mode: 'show' or 'scan'
+  // 'show' (QR), 'scan' (Camera), 'code' (Text)
   const [pairingMode, setPairingMode] = useState('show');
   const pairingModeRef = useRef('show');
+
+  // 'generate' or 'enter' (for 'code' mode)
+  const [codeMode, setCodeMode] = useState('generate');
+  const [enteredCode, setEnteredCode] = useState('');
+  const codeModeRef = useRef('generate');
 
   const [peerId, setPeerId] = useState('');
   const [conn, setConn] = useState(null);
@@ -39,6 +44,10 @@ export const SendDashboard = ({ onBack }) => {
   useEffect(() => {
     pairingModeRef.current = pairingMode;
   }, [pairingMode]);
+
+  useEffect(() => {
+    codeModeRef.current = codeMode;
+  }, [codeMode]);
 
   const sendData = async (connection) => {
     addLog('DataChannel Open. Starting chunked transfer...');
@@ -85,35 +94,64 @@ export const SendDashboard = ({ onBack }) => {
 
   useEffect(() => {
     if (mode === 'fast') {
-      setErrorMsg('');
-      addLog('Initializing PeerJS...');
-      const peer = initPeer(
-        (id) => { setPeerId(id); addLog(`PeerJS Open. ID: ${id}`); }, 
-        (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
-      );
-      peerRef.current = peer;
+      let customId = null;
+      if (pairingMode === 'code' && codeMode === 'generate') {
+        customId = Math.random().toString(36).substring(2, 8).toUpperCase();
+      }
 
-      peer.on('connection', (connection) => {
-        if (pairingModeRef.current === 'show') {
-          addLog(`Incoming connection from ${connection.peer}`);
-          setConn(connection);
-          if (connection.open) {
-            addLog('Connection already open, sending...');
-            sendData(connection);
-          } else {
-            addLog('Waiting for DataChannel to open...');
-            connection.on('open', () => sendData(connection));
+      if (pairingMode === 'show' || (pairingMode === 'code' && codeMode === 'generate')) {
+        setErrorMsg('');
+        addLog('Initializing PeerJS...');
+        const peer = initPeer(
+          customId,
+          (id) => { setPeerId(id); addLog(`PeerJS Open. ID: ${id}`); }, 
+          (err) => { 
+             if (err.type === 'unavailable-id') {
+                setErrorMsg('Code collision. Please try generating again.');
+             } else {
+                setErrorMsg(String(err)); 
+             }
+             addLog(`PeerJS Error: ${err}`); 
           }
-        }
-      });
-      return () => {
-        addLog('Cleaning up PeerJS...');
-        peer.destroy();
-        peerRef.current = null;
-        setPeerId('');
-      };
+        );
+        peerRef.current = peer;
+
+        peer.on('connection', (connection) => {
+          if (pairingModeRef.current === 'show' || (pairingModeRef.current === 'code' && codeModeRef.current === 'generate')) {
+            addLog(`Incoming connection from ${connection.peer}`);
+            setConn(connection);
+            if (connection.open) {
+              addLog('Connection already open, sending...');
+              sendData(connection);
+            } else {
+              addLog('Waiting for DataChannel to open...');
+              connection.on('open', () => sendData(connection));
+            }
+          }
+        });
+        return () => {
+          addLog('Cleaning up PeerJS...');
+          peer.destroy();
+          peerRef.current = null;
+          setPeerId('');
+        };
+      } else {
+        // Just client mode
+        setErrorMsg('');
+        const peer = initPeer(
+          null,
+          (id) => { setPeerId(id); }, 
+          (err) => { setErrorMsg(String(err)); }
+        );
+        peerRef.current = peer;
+        return () => {
+          peer.destroy();
+          peerRef.current = null;
+          setPeerId('');
+        };
+      }
     }
-  }, [mode]);
+  }, [mode, pairingMode, codeMode]);
 
   useEffect(() => {
     let html5Qrcode;
@@ -184,6 +222,17 @@ export const SendDashboard = ({ onBack }) => {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileChange({ target: { files: e.dataTransfer.files } });
     }
+  };
+
+  const initiateFastTransfer = (remoteId) => {
+    if (!remoteId) return;
+    addLog(`Attempting to connect to ${remoteId}...`);
+    const connection = connectToPeer(peerRef.current, remoteId, (c) => {
+      addLog('DataChannel Open!');
+      setConn(c);
+      sendData(c);
+    });
+    connection.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err}`); });
   };
 
   const reset = () => {
@@ -277,6 +326,12 @@ export const SendDashboard = ({ onBack }) => {
             >
               <Camera size={16} style={{marginRight: 4}}/> Scan QR
             </button>
+            <button 
+              className={pairingMode === 'code' ? 'active' : ''} 
+              onClick={() => { setPairingMode('code'); isProcessingScan.current = false; }}
+            >
+              <Keyboard size={16} style={{marginRight: 4}}/> Use Code
+            </button>
           </div>
           
           {pairingMode === 'show' && (
@@ -305,12 +360,80 @@ export const SendDashboard = ({ onBack }) => {
                </div>
              </div>
           )}
+
+          {pairingMode === 'code' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', width: '100%' }}>
+              <div className="mode-toggle" style={{ marginBottom: '1rem', width: '100%' }}>
+                <button 
+                  className={codeMode === 'generate' ? 'active' : ''} 
+                  onClick={() => setCodeMode('generate')}
+                  style={{ flex: 1 }}
+                >
+                  Generate Code
+                </button>
+                <button 
+                  className={codeMode === 'enter' ? 'active' : ''} 
+                  onClick={() => setCodeMode('enter')}
+                  style={{ flex: 1 }}
+                >
+                  Enter Code
+                </button>
+              </div>
+
+              {codeMode === 'generate' && (
+                 <div style={{ textAlign: 'center', width: '100%' }}>
+                   <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Enter this 6-character code on the receiver device.</p>
+                   {peerId ? (
+                     <div style={{ background: 'rgba(255,255,255,0.1)', padding: '2rem', borderRadius: '12px', fontSize: '3rem', letterSpacing: '0.5rem', fontWeight: 'bold' }}>
+                       {peerId}
+                     </div>
+                   ) : (
+                     <p className="pulse">Generating code...</p>
+                   )}
+                   <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '1rem' }}>Waiting for connection...</p>
+                 </div>
+              )}
+
+              {codeMode === 'enter' && (
+                 <div style={{ textAlign: 'center', width: '100%' }}>
+                   <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>Type the 6-character code shown on the receiver device.</p>
+                   <input 
+                     type="text" 
+                     maxLength={6}
+                     value={enteredCode}
+                     onChange={(e) => setEnteredCode(e.target.value.toUpperCase())}
+                     style={{ 
+                       width: '100%', 
+                       padding: '1rem', 
+                       fontSize: '2rem', 
+                       textAlign: 'center', 
+                       letterSpacing: '0.5rem', 
+                       borderRadius: '8px', 
+                       border: '2px solid rgba(255,255,255,0.2)', 
+                       background: 'rgba(0,0,0,0.2)', 
+                       color: 'white', 
+                       textTransform: 'uppercase' 
+                     }} 
+                     placeholder="------"
+                   />
+                   <button 
+                     className="btn btn-primary" 
+                     style={{ marginTop: '1rem', width: '100%' }}
+                     disabled={enteredCode.length !== 6 || !peerId}
+                     onClick={() => initiateFastTransfer(enteredCode)}
+                   >
+                     Connect
+                   </button>
+                 </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {errorMsg && (
         <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--error-color)', background: 'rgba(255,0,0,0.1)', borderRadius: '8px', marginTop: '1rem' }}>
-          <p><strong>Connection Error:</strong> {errorMsg}</p>
+          <p><strong>Error:</strong> {errorMsg}</p>
         </div>
       )}
 
