@@ -91,7 +91,9 @@ export const ReceiveDashboard = ({ onBack }) => {
     setIsFastMode(true);
     
     const doConnect = () => {
+      let isConnected = false;
       const connection = connectToPeer(peer, remoteId, (c) => {
+        isConnected = true;
         setConn(c);
         let headerData = null;
         c.on('data', (data) => {
@@ -106,6 +108,13 @@ export const ReceiveDashboard = ({ onBack }) => {
         });
       });
       connection.on('error', (err) => setErrorMsg(err.message || String(err)));
+      
+      setTimeout(() => {
+        if (!isConnected) {
+          setErrorMsg("Connection timed out. If you are using Brave or an Adblocker, it may be blocking WebRTC. Try turning off Shields or using Chrome/Safari.");
+          isProcessingScan.current = false;
+        }
+      }, 10000);
     };
 
     if (peer) {
