@@ -40,16 +40,42 @@ export const SendDashboard = ({ onBack }) => {
       peer.on('connection', (connection) => {
         addLog(`Incoming connection from ${connection.peer}`);
         setConn(connection);
-        const sendData = () => {
-          addLog('DataChannel Open. Sending data...');
+        const sendData = async () => {
+          addLog('DataChannel Open. Starting chunked transfer...');
           const currentFile = fileRef.current;
           if (currentFile) {
-            connection.send({ type: 'header', name: currentFile.name, size: currentFile.size, fileType: currentFile.type });
-            // Send file as ArrayBuffer
-            currentFile.arrayBuffer().then(buffer => {
-               connection.send({ type: 'file', buffer });
-               setTransferProgress(100);
+            const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+            const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
+            
+            connection.send({ 
+              type: 'header', 
+              name: currentFile.name, 
+              size: currentFile.size, 
+              fileType: currentFile.type,
+              totalChunks: totalChunks
             });
+
+            for (let i = 0; i < totalChunks; i++) {
+              const start = i * CHUNK_SIZE;
+              const end = Math.min(start + CHUNK_SIZE, currentFile.size);
+              const chunkBlob = currentFile.slice(start, end);
+              const chunkBuffer = await chunkBlob.arrayBuffer();
+              
+              // Prevent crashing the browser's WebRTC buffer
+              if (connection.dataChannel && connection.dataChannel.bufferedAmount > 1024 * 1024 * 2) {
+                await new Promise(resolve => {
+                  const checkBuffer = () => {
+                    if (connection.dataChannel.bufferedAmount < 1024 * 1024) resolve();
+                    else setTimeout(checkBuffer, 20);
+                  };
+                  checkBuffer();
+                });
+              }
+              
+              connection.send({ type: 'chunk', index: i, buffer: chunkBuffer });
+              setTransferProgress(Math.round(((i + 1) / totalChunks) * 100));
+            }
+            addLog('Transfer complete.');
           }
         };
         if (connection.open) {

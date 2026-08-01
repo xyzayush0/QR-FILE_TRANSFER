@@ -21,6 +21,8 @@ export const ReceiveDashboard = ({ onBack }) => {
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
   const peerRef = useRef(null);
+  const chunksRef = useRef({});
+  const expectedChunksRef = useRef(0);
   const [isPeerReady, setIsPeerReady] = useState(false);
 
   useEffect(() => {
@@ -108,13 +110,26 @@ export const ReceiveDashboard = ({ onBack }) => {
         let headerData = null;
         c.on('data', (data) => {
           if (data.type === 'header') {
-            addLog(`Received header: ${data.name}`);
-            headerData = { name: data.name, type: data.fileType };
+            addLog(`Received header: ${data.name} (${data.totalChunks} chunks)`);
+            headerData = { name: data.name, type: data.fileType, totalChunks: data.totalChunks };
             setReceivingFileData(headerData);
-          } else if (data.type === 'file') {
-            setFastTransferProgress(100);
-            const blob = new Blob([data.buffer], { type: headerData?.type || 'application/octet-stream' });
-            setCompletedFile({ blob, fileName: headerData?.name || 'download' });
+            chunksRef.current = {};
+            expectedChunksRef.current = data.totalChunks;
+          } else if (data.type === 'chunk') {
+            chunksRef.current[data.index] = data.buffer;
+            const receivedCount = Object.keys(chunksRef.current).length;
+            setFastTransferProgress(Math.round((receivedCount / expectedChunksRef.current) * 100));
+            
+            if (receivedCount === expectedChunksRef.current) {
+               addLog('All chunks received, reconstructing file...');
+               const orderedChunks = [];
+               for(let i=0; i<expectedChunksRef.current; i++) {
+                 orderedChunks.push(chunksRef.current[i]);
+               }
+               const blob = new Blob(orderedChunks, { type: headerData?.type || 'application/octet-stream' });
+               setCompletedFile({ blob, fileName: headerData?.name || 'download' });
+               chunksRef.current = {};
+            }
           }
         });
       });
