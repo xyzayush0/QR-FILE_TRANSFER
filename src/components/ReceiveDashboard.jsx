@@ -20,6 +20,7 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [logs, setLogs] = useState([]);
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
+  const peerRef = useRef(null);
   const [isPeerReady, setIsPeerReady] = useState(false);
 
   useEffect(() => {
@@ -31,7 +32,8 @@ export const ReceiveDashboard = ({ onBack }) => {
        (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
     );
     setPeer(p);
-    return () => p.destroy();
+    peerRef.current = p;
+    return () => { p.destroy(); peerRef.current = null; };
   }, []);
 
   useEffect(() => {
@@ -99,7 +101,7 @@ export const ReceiveDashboard = ({ onBack }) => {
     const doConnect = () => {
       addLog(`Attempting to connect to ${remoteId}...`);
       let isConnected = false;
-      const connection = connectToPeer(peer, remoteId, (c) => {
+      const connection = connectToPeer(peerRef.current, remoteId, (c) => {
         addLog('DataChannel Open!');
         isConnected = true;
         setConn(c);
@@ -127,13 +129,16 @@ export const ReceiveDashboard = ({ onBack }) => {
       }, 10000);
     };
 
-    if (peer) {
-      if (!peer.id) {
+    const activePeer = peerRef.current;
+    if (activePeer) {
+      if (!activePeer.id) {
          addLog('Waiting for peer to be ready...');
-         peer.on('open', doConnect);
+         activePeer.on('open', doConnect);
       } else {
          doConnect();
       }
+    } else {
+      addLog('Error: Peer instance is null!');
     }
   };
 
