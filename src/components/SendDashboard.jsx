@@ -63,12 +63,17 @@ export const SendDashboard = ({ onBack }) => {
               
               // Prevent crashing the browser's WebRTC buffer
               if (connection.dataChannel && connection.dataChannel.bufferedAmount > 1024 * 1024 * 2) {
+                connection.dataChannel.bufferedAmountLowThreshold = 1024 * 1024;
                 await new Promise(resolve => {
-                  const checkBuffer = () => {
-                    if (connection.dataChannel.bufferedAmount < 1024 * 1024) resolve();
-                    else setTimeout(checkBuffer, 20);
+                  const onLow = () => {
+                    connection.dataChannel.removeEventListener('bufferedamountlow', onLow);
+                    resolve();
                   };
-                  checkBuffer();
+                  if (connection.dataChannel.bufferedAmount <= 1024 * 1024) {
+                    resolve();
+                  } else {
+                    connection.dataChannel.addEventListener('bufferedamountlow', onLow);
+                  }
                 });
               }
               
