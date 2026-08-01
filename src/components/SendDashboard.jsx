@@ -20,6 +20,11 @@ export const SendDashboard = ({ onBack }) => {
   const [transferProgress, setTransferProgress] = useState(0);
   
   const timerRef = useRef(null);
+  const fileRef = useRef(file);
+
+  useEffect(() => {
+    fileRef.current = file;
+  }, [file]);
 
   useEffect(() => {
     if (mode === 'fast' && !peerId) {
@@ -27,10 +32,11 @@ export const SendDashboard = ({ onBack }) => {
       peer.on('connection', (connection) => {
         setConn(connection);
         connection.on('open', () => {
-          if (file) {
-            connection.send({ type: 'header', name: file.name, size: file.size, fileType: file.type });
+          const currentFile = fileRef.current;
+          if (currentFile) {
+            connection.send({ type: 'header', name: currentFile.name, size: currentFile.size, fileType: currentFile.type });
             // Send file as ArrayBuffer
-            file.arrayBuffer().then(buffer => {
+            currentFile.arrayBuffer().then(buffer => {
                connection.send({ type: 'file', buffer });
                setTransferProgress(100);
             });
@@ -39,7 +45,7 @@ export const SendDashboard = ({ onBack }) => {
       });
       return () => peer.destroy();
     }
-  }, [mode, file]);
+  }, [mode, peerId]);
 
   useEffect(() => {
     if (isPlaying && chunks.length > 0) {

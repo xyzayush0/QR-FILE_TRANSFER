@@ -86,13 +86,15 @@ export const ReceiveDashboard = ({ onBack }) => {
     if (peer) {
       const connection = connectToPeer(peer, remoteId, (c) => {
         setConn(c);
+        let headerData = null;
         c.on('data', (data) => {
           if (data.type === 'header') {
-            setReceivingFileData({ name: data.name, type: data.fileType });
+            headerData = { name: data.name, type: data.fileType };
+            setReceivingFileData(headerData);
           } else if (data.type === 'file') {
             setFastTransferProgress(100);
-            const blob = new Blob([data.buffer], { type: receivingFileData?.type || 'application/octet-stream' });
-            setCompletedFile({ blob, fileName: receivingFileData?.name || 'download' });
+            const blob = new Blob([data.buffer], { type: headerData?.type || 'application/octet-stream' });
+            setCompletedFile({ blob, fileName: headerData?.name || 'download' });
           }
         });
       });
