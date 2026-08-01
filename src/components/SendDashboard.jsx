@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UploadCloud, CheckCircle, Eye, Zap, Play, Pause, Camera, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from "html5-qrcode";
-import { prepareChunks } from '../utils/optical';
+import { prepareChunks } from '../utils/chunking';
 import { initPeer, connectToPeer } from '../utils/webrtc';
 
 export const SendDashboard = ({ onBack }) => {
