@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/QR-FILE_TRANSFER/sw.js', { scope: '/QR-FILE_TRANSFER/' })})}

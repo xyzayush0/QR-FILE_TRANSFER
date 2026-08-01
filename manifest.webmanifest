@@ -1,0 +1,1 @@
+{"name":"QRStream File Transfer","short_name":"QRStream","description":"Transfer files optically without internet","start_url":"/QR-FILE_TRANSFER/","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a","lang":"en","scope":"/QR-FILE_TRANSFER/","icons":[{"src":"favicon.svg","sizes":"192x192 512x512","type":"image/svg+xml"}]}
