@@ -109,7 +109,7 @@ export const ReceiveDashboard = ({ onBack }) => {
     };
 
     if (peer) {
-      if (!isPeerReady) {
+      if (!peer.id) {
          peer.on('open', doConnect);
       } else {
          doConnect();
@@ -157,7 +157,13 @@ export const ReceiveDashboard = ({ onBack }) => {
         </>
       )}
 
-      {isFastMode && !completedFile && (
+      {isFastMode && !conn && !completedFile && (
+        <div style={{ textAlign: 'center', padding: '2rem' }}>
+          <p className="pulse">Connecting to sender...</p>
+        </div>
+      )}
+
+      {isFastMode && conn && !completedFile && (
         <div style={{ textAlign: 'center', padding: '2rem' }}>
           <div className="badge badge-fast" style={{ marginBottom: '1rem' }}>WebRTC Connected</div>
           <p className="pulse">Receiving file data...</p>
