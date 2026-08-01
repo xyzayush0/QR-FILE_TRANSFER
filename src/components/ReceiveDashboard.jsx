@@ -17,13 +17,19 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [fastTransferProgress, setFastTransferProgress] = useState(0);
   const [receivingFileData, setReceivingFileData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [logs, setLogs] = useState([]);
+  const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
   const [isPeerReady, setIsPeerReady] = useState(false);
 
   useEffect(() => {
     // Initialize WebRTC Peer for receiving
     setErrorMsg('');
-    const p = initPeer(() => setIsPeerReady(true), (err) => setErrorMsg(err));
+    addLog('Initializing PeerJS...');
+    const p = initPeer(
+       () => { setIsPeerReady(true); addLog('PeerJS Open.'); }, 
+       (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
+    );
     setPeer(p);
     return () => p.destroy();
   }, []);
@@ -91,13 +97,16 @@ export const ReceiveDashboard = ({ onBack }) => {
     setIsFastMode(true);
     
     const doConnect = () => {
+      addLog(`Attempting to connect to ${remoteId}...`);
       let isConnected = false;
       const connection = connectToPeer(peer, remoteId, (c) => {
+        addLog('DataChannel Open!');
         isConnected = true;
         setConn(c);
         let headerData = null;
         c.on('data', (data) => {
           if (data.type === 'header') {
+            addLog(`Received header: ${data.name}`);
             headerData = { name: data.name, type: data.fileType };
             setReceivingFileData(headerData);
           } else if (data.type === 'file') {
@@ -107,11 +116,12 @@ export const ReceiveDashboard = ({ onBack }) => {
           }
         });
       });
-      connection.on('error', (err) => setErrorMsg(err.message || String(err)));
+      connection.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err.message || err}`); });
       
       setTimeout(() => {
         if (!isConnected) {
           setErrorMsg("Connection timed out. If you are using Brave or an Adblocker, it may be blocking WebRTC. Try turning off Shields or using Chrome/Safari.");
+          addLog("Connection timeout");
           isProcessingScan.current = false;
         }
       }, 10000);
@@ -119,6 +129,7 @@ export const ReceiveDashboard = ({ onBack }) => {
 
     if (peer) {
       if (!peer.id) {
+         addLog('Waiting for peer to be ready...');
          peer.on('open', doConnect);
       } else {
          doConnect();
@@ -200,6 +211,13 @@ export const ReceiveDashboard = ({ onBack }) => {
       )}
 
       <button className="btn" onClick={() => { isProcessingScan.current = false; onBack(); }} style={{ marginTop: '1rem' }}>Back</button>
+
+      {logs.length > 0 && (
+        <div style={{ marginTop: '2rem', padding: '1rem', background: '#000', color: '#0f0', fontFamily: 'monospace', fontSize: '12px', borderRadius: '8px', textAlign: 'left' }}>
+          <strong>Debug Logs:</strong><br/>
+          {logs.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
     </div>
   );
 };

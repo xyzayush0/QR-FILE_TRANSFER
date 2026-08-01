@@ -19,6 +19,8 @@ export const SendDashboard = ({ onBack }) => {
   const [conn, setConn] = useState(null);
   const [transferProgress, setTransferProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
+  const [logs, setLogs] = useState([]);
+  const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   
   const timerRef = useRef(null);
   const fileRef = useRef(file);
@@ -30,10 +32,16 @@ export const SendDashboard = ({ onBack }) => {
   useEffect(() => {
     if (mode === 'fast') {
       setErrorMsg('');
-      const peer = initPeer((id) => setPeerId(id), (err) => setErrorMsg(err));
+      addLog('Initializing PeerJS...');
+      const peer = initPeer(
+        (id) => { setPeerId(id); addLog(`PeerJS Open. ID: ${id}`); }, 
+        (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
+      );
       peer.on('connection', (connection) => {
+        addLog(`Incoming connection from ${connection.peer}`);
         setConn(connection);
         const sendData = () => {
+          addLog('DataChannel Open. Sending data...');
           const currentFile = fileRef.current;
           if (currentFile) {
             connection.send({ type: 'header', name: currentFile.name, size: currentFile.size, fileType: currentFile.type });
@@ -45,12 +53,15 @@ export const SendDashboard = ({ onBack }) => {
           }
         };
         if (connection.open) {
+          addLog('Connection already open, sending...');
           sendData();
         } else {
+          addLog('Waiting for DataChannel to open...');
           connection.on('open', sendData);
         }
       });
       return () => {
+        addLog('Cleaning up PeerJS...');
         peer.destroy();
         setPeerId('');
       };
@@ -194,6 +205,13 @@ export const SendDashboard = ({ onBack }) => {
       )}
 
       <button className="btn" onClick={onBack} style={{ marginTop: '1rem' }}>Back</button>
+
+      {logs.length > 0 && (
+        <div style={{ marginTop: '2rem', padding: '1rem', background: '#000', color: '#0f0', fontFamily: 'monospace', fontSize: '12px', borderRadius: '8px', textAlign: 'left' }}>
+          <strong>Debug Logs:</strong><br/>
+          {logs.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
     </div>
   );
 };
