@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { CheckCircle, Download, Camera } from 'lucide-react';
-import { reassembleFile } from '../utils/chunking';
-import { connectToPeer, initPeer } from '../utils/webrtc';
+import React, { useState, useEffect, useRef } from 'react';
+import { Html5Qrcode } from "html5-qrcode";
+import { QRCodeSVG } from 'qrcode.react';
+import { Download, CheckCircle, Camera, QrCode } from 'lucide-react';
+import { reassembleFile } from '../utils/optical';
+import { initPeer, connectToPeer } from '../utils/webrtc';
 
 export const ReceiveDashboard = ({ onBack }) => {
   const [scannerInstance, setScannerInstance] = useState(null);
@@ -10,7 +11,6 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [totalChunks, setTotalChunks] = useState(0);
   const [completedFile, setCompletedFile] = useState(null);
   
-  // Fast Mode state
   const [isFastMode, setIsFastMode] = useState(false);
   const [peer, setPeer] = useState(null);
   const [conn, setConn] = useState(null);
@@ -18,6 +18,11 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [receivingFileData, setReceivingFileData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [logs, setLogs] = useState([]);
+  
+  // New Pairing Mode: 'scan' or 'show'
+  const [pairingMode, setPairingMode] = useState('scan');
+  const pairingModeRef = useRef('scan');
+
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   const isProcessingScan = useRef(false);
   const peerRef = useRef(null);
@@ -25,8 +30,40 @@ export const ReceiveDashboard = ({ onBack }) => {
   const expectedChunksRef = useRef(0);
   const [isPeerReady, setIsPeerReady] = useState(false);
 
+  const setupDataListener = (c) => {
+    let headerData = null;
+    c.on('data', (data) => {
+      if (data.type === 'header') {
+        addLog(`Received header: ${data.name} (${data.totalChunks} chunks)`);
+        headerData = { name: data.name, type: data.fileType, totalChunks: data.totalChunks };
+        setReceivingFileData(headerData);
+        chunksRef.current = {};
+        expectedChunksRef.current = data.totalChunks;
+      } else if (data.type === 'chunk') {
+        chunksRef.current[data.index] = data.buffer;
+        const receivedCount = Object.keys(chunksRef.current).length;
+        setFastTransferProgress(Math.round((receivedCount / expectedChunksRef.current) * 100));
+        
+        if (receivedCount === expectedChunksRef.current) {
+           addLog('All chunks received, reconstructing file...');
+           const orderedChunks = [];
+           for(let i=0; i<expectedChunksRef.current; i++) {
+             orderedChunks.push(chunksRef.current[i]);
+           }
+           const blob = new Blob(orderedChunks, { type: headerData?.type || 'application/octet-stream' });
+           setCompletedFile({ blob, fileName: headerData?.name || 'download' });
+           chunksRef.current = {};
+        }
+      }
+    });
+    c.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err.message || err}`); });
+  };
+
   useEffect(() => {
-    // Initialize WebRTC Peer for receiving
+    pairingModeRef.current = pairingMode;
+  }, [pairingMode]);
+
+  useEffect(() => {
     setErrorMsg('');
     addLog('Initializing PeerJS...');
     const p = initPeer(
@@ -35,12 +72,22 @@ export const ReceiveDashboard = ({ onBack }) => {
     );
     setPeer(p);
     peerRef.current = p;
+
+    p.on('connection', (c) => {
+      if (pairingModeRef.current === 'show') {
+         addLog('Incoming connection received.');
+         setIsFastMode(true);
+         setConn(c);
+         setupDataListener(c);
+      }
+    });
+
     return () => { p.destroy(); peerRef.current = null; };
   }, []);
 
   useEffect(() => {
     let html5Qrcode;
-    if (!completedFile && !isFastMode) {
+    if (!completedFile && !isFastMode && pairingMode === 'scan') {
       html5Qrcode = new Html5Qrcode("reader");
       setScannerInstance(html5Qrcode);
       
@@ -58,7 +105,7 @@ export const ReceiveDashboard = ({ onBack }) => {
         html5Qrcode.stop().catch(console.error);
       }
     };
-  }, [completedFile, isFastMode]);
+  }, [completedFile, isFastMode, pairingMode]);
 
   const handleScan = (text) => {
     if (isProcessingScan.current) return;
@@ -107,31 +154,7 @@ export const ReceiveDashboard = ({ onBack }) => {
         addLog('DataChannel Open!');
         isConnected = true;
         setConn(c);
-        let headerData = null;
-        c.on('data', (data) => {
-          if (data.type === 'header') {
-            addLog(`Received header: ${data.name} (${data.totalChunks} chunks)`);
-            headerData = { name: data.name, type: data.fileType, totalChunks: data.totalChunks };
-            setReceivingFileData(headerData);
-            chunksRef.current = {};
-            expectedChunksRef.current = data.totalChunks;
-          } else if (data.type === 'chunk') {
-            chunksRef.current[data.index] = data.buffer;
-            const receivedCount = Object.keys(chunksRef.current).length;
-            setFastTransferProgress(Math.round((receivedCount / expectedChunksRef.current) * 100));
-            
-            if (receivedCount === expectedChunksRef.current) {
-               addLog('All chunks received, reconstructing file...');
-               const orderedChunks = [];
-               for(let i=0; i<expectedChunksRef.current; i++) {
-                 orderedChunks.push(chunksRef.current[i]);
-               }
-               const blob = new Blob(orderedChunks, { type: headerData?.type || 'application/octet-stream' });
-               setCompletedFile({ blob, fileName: headerData?.name || 'download' });
-               chunksRef.current = {};
-            }
-          }
-        });
+        setupDataListener(c);
       });
       connection.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err.message || err}`); });
       
@@ -174,10 +197,27 @@ export const ReceiveDashboard = ({ onBack }) => {
     <div className="glass-panel">
       <div className="header">
         <h2>Receive File</h2>
-        <p>{isFastMode ? 'WebRTC Fast Transfer Active' : 'Scan the QR Stream'}</p>
+        <p>{isFastMode ? 'WebRTC Fast Transfer Active' : 'Waiting for Sender'}</p>
       </div>
 
       {!completedFile && !isFastMode && (
+        <div className="mode-toggle" style={{ marginBottom: '1rem' }}>
+          <button 
+            className={pairingMode === 'scan' ? 'active' : ''} 
+            onClick={() => setPairingMode('scan')}
+          >
+            <Camera size={16} style={{marginRight: 4}}/> Scan QR
+          </button>
+          <button 
+            className={pairingMode === 'show' ? 'active' : ''} 
+            onClick={() => setPairingMode('show')}
+          >
+            <QrCode size={16} style={{marginRight: 4}}/> Show QR
+          </button>
+        </div>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'scan' && (
         <>
           <div className="camera-container">
             <div id="reader"></div>
@@ -195,6 +235,22 @@ export const ReceiveDashboard = ({ onBack }) => {
             </div>
           )}
         </>
+      )}
+
+      {!completedFile && !isFastMode && pairingMode === 'show' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the sender device to pair instantly.</p>
+          {isPeerReady ? (
+            <div className="qr-container">
+              <QRCodeSVG value={`WEBRTC|${peerRef.current?.id}`} size={200} level="M" />
+            </div>
+          ) : (
+            <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p className="pulse">Generating QR Code...</p>
+            </div>
+          )}
+          <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+        </div>
       )}
 
       {isFastMode && !conn && !completedFile && (

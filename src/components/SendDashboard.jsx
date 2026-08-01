@@ -1,33 +1,87 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { UploadCloud, CheckCircle, Eye, Zap, Play, Pause, Camera, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { UploadCloud, Zap, Eye, Play, Pause, CheckCircle } from 'lucide-react';
-import { prepareChunks } from '../utils/chunking';
-import { initPeer } from '../utils/webrtc';
+import { Html5Qrcode } from "html5-qrcode";
+import { prepareChunks } from '../utils/optical';
+import { initPeer, connectToPeer } from '../utils/webrtc';
 
 export const SendDashboard = ({ onBack }) => {
   const [file, setFile] = useState(null);
-  const [mode, setMode] = useState('optical'); // 'optical' or 'fast'
-  const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Optical state
   const [chunks, setChunks] = useState([]);
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [mode, setMode] = useState('optical'); // 'optical' or 'fast'
   
-  // Fast state
+  // New Pairing Mode for Fast Mode: 'show' or 'scan'
+  const [pairingMode, setPairingMode] = useState('show');
+  const pairingModeRef = useRef('show');
+
   const [peerId, setPeerId] = useState('');
   const [conn, setConn] = useState(null);
   const [transferProgress, setTransferProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [logs, setLogs] = useState([]);
+  
+  const [scannerInstance, setScannerInstance] = useState(null);
+  const isProcessingScan = useRef(false);
+
   const addLog = (msg) => { console.log(msg); setLogs(prev => [...prev.slice(-4), msg]); };
   
   const timerRef = useRef(null);
   const fileRef = useRef(file);
+  const peerRef = useRef(null);
 
   useEffect(() => {
     fileRef.current = file;
   }, [file]);
+
+  useEffect(() => {
+    pairingModeRef.current = pairingMode;
+  }, [pairingMode]);
+
+  const sendData = async (connection) => {
+    addLog('DataChannel Open. Starting chunked transfer...');
+    const currentFile = fileRef.current;
+    if (currentFile) {
+      const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+      const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
+      
+      connection.send({ 
+        type: 'header', 
+        name: currentFile.name, 
+        size: currentFile.size, 
+        fileType: currentFile.type,
+        totalChunks: totalChunks
+      });
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, currentFile.size);
+        const chunkBlob = currentFile.slice(start, end);
+        const chunkBuffer = await chunkBlob.arrayBuffer();
+        
+        if (connection.dataChannel && connection.dataChannel.bufferedAmount > 1024 * 1024 * 2) {
+          connection.dataChannel.bufferedAmountLowThreshold = 1024 * 1024;
+          await new Promise(resolve => {
+            const onLow = () => {
+              connection.dataChannel.removeEventListener('bufferedamountlow', onLow);
+              resolve();
+            };
+            if (connection.dataChannel.bufferedAmount <= 1024 * 1024) {
+              resolve();
+            } else {
+              connection.dataChannel.addEventListener('bufferedamountlow', onLow);
+            }
+          });
+        }
+        
+        connection.send({ type: 'chunk', index: i, buffer: chunkBuffer });
+        setTransferProgress(Math.round(((i + 1) / totalChunks) * 100));
+      }
+      addLog('Transfer complete.');
+    }
+  };
 
   useEffect(() => {
     if (mode === 'fast') {
@@ -37,73 +91,74 @@ export const SendDashboard = ({ onBack }) => {
         (id) => { setPeerId(id); addLog(`PeerJS Open. ID: ${id}`); }, 
         (err) => { setErrorMsg(err); addLog(`PeerJS Error: ${err}`); }
       );
-      peer.on('connection', (connection) => {
-        addLog(`Incoming connection from ${connection.peer}`);
-        setConn(connection);
-        const sendData = async () => {
-          addLog('DataChannel Open. Starting chunked transfer...');
-          const currentFile = fileRef.current;
-          if (currentFile) {
-            const CHUNK_SIZE = 64 * 1024; // 64KB chunks
-            const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
-            
-            connection.send({ 
-              type: 'header', 
-              name: currentFile.name, 
-              size: currentFile.size, 
-              fileType: currentFile.type,
-              totalChunks: totalChunks
-            });
+      peerRef.current = peer;
 
-            for (let i = 0; i < totalChunks; i++) {
-              const start = i * CHUNK_SIZE;
-              const end = Math.min(start + CHUNK_SIZE, currentFile.size);
-              const chunkBlob = currentFile.slice(start, end);
-              const chunkBuffer = await chunkBlob.arrayBuffer();
-              
-              // Prevent crashing the browser's WebRTC buffer
-              if (connection.dataChannel && connection.dataChannel.bufferedAmount > 1024 * 1024 * 2) {
-                connection.dataChannel.bufferedAmountLowThreshold = 1024 * 1024;
-                await new Promise(resolve => {
-                  const onLow = () => {
-                    connection.dataChannel.removeEventListener('bufferedamountlow', onLow);
-                    resolve();
-                  };
-                  if (connection.dataChannel.bufferedAmount <= 1024 * 1024) {
-                    resolve();
-                  } else {
-                    connection.dataChannel.addEventListener('bufferedamountlow', onLow);
-                  }
-                });
-              }
-              
-              connection.send({ type: 'chunk', index: i, buffer: chunkBuffer });
-              setTransferProgress(Math.round(((i + 1) / totalChunks) * 100));
-            }
-            addLog('Transfer complete.');
+      peer.on('connection', (connection) => {
+        if (pairingModeRef.current === 'show') {
+          addLog(`Incoming connection from ${connection.peer}`);
+          setConn(connection);
+          if (connection.open) {
+            addLog('Connection already open, sending...');
+            sendData(connection);
+          } else {
+            addLog('Waiting for DataChannel to open...');
+            connection.on('open', () => sendData(connection));
           }
-        };
-        if (connection.open) {
-          addLog('Connection already open, sending...');
-          sendData();
-        } else {
-          addLog('Waiting for DataChannel to open...');
-          connection.on('open', sendData);
         }
       });
       return () => {
         addLog('Cleaning up PeerJS...');
         peer.destroy();
+        peerRef.current = null;
         setPeerId('');
       };
     }
   }, [mode]);
 
   useEffect(() => {
+    let html5Qrcode;
+    if (mode === 'fast' && pairingMode === 'scan' && file && !conn) {
+      html5Qrcode = new Html5Qrcode("sender-reader");
+      setScannerInstance(html5Qrcode);
+      
+      const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+      
+      html5Qrcode.start({ facingMode: "environment" }, config, (decodedText) => {
+        if (isProcessingScan.current) return;
+        
+        if (decodedText.startsWith("WEBRTC|")) {
+          isProcessingScan.current = true;
+          const remoteId = decodedText.split("|")[1];
+          
+          if (html5Qrcode) {
+            html5Qrcode.stop().catch(console.error);
+          }
+          
+          addLog(`Attempting to connect to ${remoteId}...`);
+          const connection = connectToPeer(peerRef.current, remoteId, (c) => {
+            addLog('DataChannel Open!');
+            setConn(c);
+            sendData(c);
+          });
+          connection.on('error', (err) => { setErrorMsg(err.message || String(err)); addLog(`Conn Error: ${err}`); });
+        }
+      }).catch(err => {
+        console.error("Camera start failed", err);
+      });
+    }
+
+    return () => {
+      if (html5Qrcode && html5Qrcode.isScanning) {
+        html5Qrcode.stop().catch(console.error);
+      }
+    };
+  }, [mode, pairingMode, file, conn]);
+
+  useEffect(() => {
     if (isPlaying && chunks.length > 0) {
       timerRef.current = setInterval(() => {
         setCurrentChunkIndex((prev) => (prev + 1) % chunks.length);
-      }, 100); // 10 FPS
+      }, 100);
     } else {
       clearInterval(timerRef.current);
     }
@@ -137,6 +192,7 @@ export const SendDashboard = ({ onBack }) => {
     setIsPlaying(false);
     setConn(null);
     setTransferProgress(0);
+    isProcessingScan.current = false;
   };
 
   return (
@@ -206,14 +262,49 @@ export const SendDashboard = ({ onBack }) => {
         </div>
       )}
 
-      {file && mode === 'fast' && peerId && !conn && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
-          <div className="badge badge-fast">WebRTC Transfer</div>
-          <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the receiver device to pair instantly.</p>
-          <div className="qr-container">
-            <QRCodeSVG value={`WEBRTC|${peerId}`} size={200} level="M" />
+      {file && mode === 'fast' && !conn && (
+        <div style={{ marginTop: '1rem' }}>
+          <div className="mode-toggle" style={{ marginBottom: '1rem' }}>
+            <button 
+              className={pairingMode === 'show' ? 'active' : ''} 
+              onClick={() => { setPairingMode('show'); isProcessingScan.current = false; }}
+            >
+              <QrCode size={16} style={{marginRight: 4}}/> Show QR
+            </button>
+            <button 
+              className={pairingMode === 'scan' ? 'active' : ''} 
+              onClick={() => { setPairingMode('scan'); isProcessingScan.current = false; }}
+            >
+              <Camera size={16} style={{marginRight: 4}}/> Scan QR
+            </button>
           </div>
-          <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+          
+          {pairingMode === 'show' && (
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+               <div className="badge badge-fast">WebRTC Transfer</div>
+               <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan this QR with the receiver device to pair instantly.</p>
+               {peerId ? (
+                 <div className="qr-container">
+                   <QRCodeSVG value={`WEBRTC|${peerId}`} size={200} level="M" />
+                 </div>
+               ) : (
+                 <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                   <p className="pulse">Generating QR Code...</p>
+                 </div>
+               )}
+               <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+             </div>
+          )}
+
+          {pairingMode === 'scan' && (
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+               <div className="badge badge-fast">WebRTC Transfer</div>
+               <p style={{ textAlign: 'center', fontSize: '0.9rem' }}>Scan the receiver's QR code to send the file.</p>
+               <div className="camera-container" style={{ width: '100%' }}>
+                 <div id="sender-reader"></div>
+               </div>
+             </div>
+          )}
         </div>
       )}
 
