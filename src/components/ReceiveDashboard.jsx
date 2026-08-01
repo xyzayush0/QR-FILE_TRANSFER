@@ -16,10 +16,12 @@ export const ReceiveDashboard = ({ onBack }) => {
   const [conn, setConn] = useState(null);
   const [fastTransferProgress, setFastTransferProgress] = useState(0);
   const [receivingFileData, setReceivingFileData] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     // Initialize WebRTC Peer for receiving
-    const p = initPeer(() => {});
+    setErrorMsg('');
+    const p = initPeer(() => {}, (err) => setErrorMsg(err));
     setPeer(p);
     return () => p.destroy();
   }, []);
@@ -148,6 +150,12 @@ export const ReceiveDashboard = ({ onBack }) => {
           <div className="progress-bar-container" style={{ marginTop: '1rem' }}>
              <div className="progress-bar" style={{ width: `${fastTransferProgress}%` }}></div>
           </div>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--error-color)', background: 'rgba(255,0,0,0.1)', borderRadius: '8px', marginTop: '1rem' }}>
+          <p><strong>Connection Error:</strong> {errorMsg}</p>
         </div>
       )}
 

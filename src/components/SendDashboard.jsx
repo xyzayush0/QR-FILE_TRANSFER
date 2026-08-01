@@ -18,6 +18,7 @@ export const SendDashboard = ({ onBack }) => {
   const [peerId, setPeerId] = useState('');
   const [conn, setConn] = useState(null);
   const [transferProgress, setTransferProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
   
   const timerRef = useRef(null);
   const fileRef = useRef(file);
@@ -28,10 +29,11 @@ export const SendDashboard = ({ onBack }) => {
 
   useEffect(() => {
     if (mode === 'fast') {
-      const peer = initPeer((id) => setPeerId(id));
+      setErrorMsg('');
+      const peer = initPeer((id) => setPeerId(id), (err) => setErrorMsg(err));
       peer.on('connection', (connection) => {
         setConn(connection);
-        connection.on('open', () => {
+        const sendData = () => {
           const currentFile = fileRef.current;
           if (currentFile) {
             connection.send({ type: 'header', name: currentFile.name, size: currentFile.size, fileType: currentFile.type });
@@ -41,7 +43,12 @@ export const SendDashboard = ({ onBack }) => {
                setTransferProgress(100);
             });
           }
-        });
+        };
+        if (connection.open) {
+          sendData();
+        } else {
+          connection.on('open', sendData);
+        }
       });
       return () => {
         peer.destroy();
@@ -165,6 +172,12 @@ export const SendDashboard = ({ onBack }) => {
             <QRCodeSVG value={`WEBRTC|${peerId}`} size={200} level="M" />
           </div>
           <p className="pulse" style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Waiting for connection...</p>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--error-color)', background: 'rgba(255,0,0,0.1)', borderRadius: '8px', marginTop: '1rem' }}>
+          <p><strong>Connection Error:</strong> {errorMsg}</p>
         </div>
       )}
 
