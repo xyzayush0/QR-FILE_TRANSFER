@@ -11,7 +11,7 @@ export const SendDashboard = ({ onBack }) => {
   const [currentChunkIndex, setCurrentChunkIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mode, setMode] = useState('optical'); // 'optical' or 'fast'
+  const [mode, setMode] = useState('fast'); // 'optical' or 'fast'
   
   // 'show' (QR), 'scan' (Camera), 'code' (Text)
   const [pairingMode, setPairingMode] = useState('show');
@@ -253,17 +253,23 @@ export const SendDashboard = ({ onBack }) => {
 
       <div className="mode-toggle">
         <button 
-          className={mode === 'optical' ? 'active' : ''} 
-          onClick={() => { setMode('optical'); reset(); }}
-        >
-          <Eye size={16} style={{marginRight: 4}}/> Optical Mode
-        </button>
-        <button 
           className={mode === 'fast' ? 'active' : ''} 
           onClick={() => { setMode('fast'); reset(); }}
         >
           <Zap size={16} style={{marginRight: 4}}/> Fast Mode (WebRTC)
         </button>
+        <button 
+          className={mode === 'optical' ? 'active' : ''} 
+          onClick={() => { setMode('optical'); reset(); }}
+        >
+          <Eye size={16} style={{marginRight: 4}}/> Optical Mode
+        </button>
+      </div>
+
+      <div style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', margin: '0.5rem 0 1.5rem 0', padding: '0 1rem', lineHeight: '1.4' }}>
+        {mode === 'fast' 
+          ? "💡 Transfers files instantly over your local Wi-Fi or internet. Best for large files like videos." 
+          : "💡 Transfers files visually by blinking QR codes. Works 100% offline with zero network connection, but is only suitable for very small files."}
       </div>
 
       {!file && (
