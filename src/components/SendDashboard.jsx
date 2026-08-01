@@ -268,7 +268,7 @@ export const SendDashboard = ({ onBack }) => {
 
       <div style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', margin: '0.5rem 0 1.5rem 0', padding: '0 1rem', lineHeight: '1.4' }}>
         {mode === 'fast' 
-          ? "💡 Transfers files instantly over your local Wi-Fi or internet. Best for large files like videos." 
+          ? "💡 Transfers files instantly. Requires both devices to be connected to the exact same Wi-Fi network." 
           : "💡 Transfers files visually by blinking QR codes. Works 100% offline with zero network connection, but is only suitable for very small files."}
       </div>
 
